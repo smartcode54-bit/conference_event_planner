@@ -240,4 +240,121 @@
 
 **ลองต่อยอด:** ลองพิมพ์ `calculateTotalCost("meal")` (ตกตัว s) ดู — จะได้ `0` โดยไม่มี error เลย นี่คือราคาของการใช้ magic string ลองคิดว่าจะกันยังไง (constant object? TypeScript union type?)
 
-**addendum — `${...}` ใน JSX ไม่ใช่ template literal:** `<div>Total Cost: ${mealsTotalCost}</div>` ดูเหมือน template literal แต่ไม่ใช่ — มันคือ **ตัวอักษร `$` ธรรมดา** ตามด้วย **JSX expression container `{...}`** ซึ่งเป็นคนละไวยากรณ์กันโดยสิ้นเชิง template literal ต้องอยู่ใน backtick (`` `Total Cost: ${x}` ``) เท่านั้น ที่สับสนกันบ่อยเพราะผลลัพธ์ออกมาเหมือนกันพอดี ทดสอบได้โดยลบ `$` ออก — ตัวเลขยังแสดงปกติ เพราะ `{}` ทำงานของมันเองอยู่แล้ว อ้างอิง: [React — JSX with curly braces](https://react.dev/learn/javascript-in-jsx-with-curly-braces), [MDN — Template literals](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals)
+**addendum (1) — `${...}` ใน JSX ไม่ใช่ template literal:** `<div>Total Cost: ${mealsTotalCost}</div>` ดูเหมือน template literal แต่ไม่ใช่ — มันคือ **ตัวอักษร `$` ธรรมดา** ตามด้วย **JSX expression container `{...}`** ซึ่งเป็นคนละไวยากรณ์กันโดยสิ้นเชิง template literal ต้องอยู่ใน backtick (`` `Total Cost: ${x}` ``) เท่านั้น ที่สับสนกันบ่อยเพราะผลลัพธ์ออกมาเหมือนกันพอดี ทดสอบได้โดยลบ `$` ออก — ตัวเลขยังแสดงปกติ เพราะ `{}` ทำงานของมันเองอยู่แล้ว อ้างอิง: [React — JSX with curly braces](https://react.dev/learn/javascript-in-jsx-with-curly-braces), [MDN — Template literals](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals)
+
+---
+
+## [2026-09-21] Conference Event Planner — Deploy: content hashing กับ CDN cache
+
+**Stack:** Vite / GitHub Pages (static hosting)
+
+**Concept:** ทำไมไฟล์ asset มี hash ต่อท้าย และทำไม `index.html` ถึงค้าง cache
+
+**อธิบาย:**
+- หลัง deploy สำเร็จ (Pages build status = `built`, ไม่มี error) แต่ยิง request ไปหน้าเว็บกลับยังได้ `index-accJ1cMr.js` ตัวเก่า — พอยิงซ้ำแบบ `Cache-Control: no-cache` ถึงได้ `index-CxiW6x_X.js` ตัวใหม่ **ปัญหาอยู่ที่ CDN cache ไม่ใช่ deploy ล้มเหลว**
+- Vite ตั้งชื่อไฟล์ build เป็น `index-<hash>.js` โดย hash คำนวณจาก **เนื้อหาไฟล์** → เนื้อหาเปลี่ยนเมื่อไหร่ ชื่อไฟล์เปลี่ยนตาม นี่คือเทคนิค **cache busting**: ตั้ง cache ของ asset ไว้ยาวมาก (1 ปี) ได้อย่างปลอดภัย เพราะไฟล์ใหม่ = URL ใหม่เสมอ ไม่มีทางได้ของเก่าผิดตัว
+- แต่ `index.html` **มี hash ไม่ได้** เพราะเป็นจุดเข้าที่ URL ต้องคงที่ → มันจึงเป็นไฟล์เดียวที่ต้องพึ่ง cache header และเป็นตัวที่ค้างบ่อยที่สุด GitHub Pages ตั้ง `max-age` ของ HTML ไว้สั้น (ระดับนาที) รอสักพักหรือ hard refresh (Ctrl+F5) ก็หาย
+- **วิธีแยกแยะว่า deploy พังจริงหรือแค่ cache:** เช็ก 3 ชั้นตามลำดับ — (1) `git ls-remote origin refs/heads/gh-pages` sha เปลี่ยนไหม (2) `gh api .../pages/builds/latest` status เป็น `built` และ commit ตรงไหม (3) ค่อยดูหน้าเว็บ ถ้า 2 ชั้นแรกผ่านแล้วชั้น 3 ยังเก่า = cache แน่นอน
+
+**ข้อควรระวังด้าน security:**
+- `gh-pages -d dist` publish **ทุกไฟล์ใน `dist/`** ขึ้นเว็บสาธารณะ — อะไรที่หลุดเข้า `dist/` หรือ `public/` จะอ่านได้จากอินเทอร์เน็ตทันที **ห้ามวาง `.env`, service account key หรือ credential ใด ๆ ใน `public/`** เด็ดขาด (Vite copy ทุกอย่างใน `public/` ไป `dist/` ตรง ๆ โดยไม่ผ่าน bundler)
+- อีกข้อ: ตัวแปรที่ขึ้นต้นด้วย `VITE_` จะถูก **ฝังลงไฟล์ JS ที่ผู้ใช้โหลดได้** ไม่ใช่ความลับ — ใช้ได้เฉพาะค่าที่เปิดเผยได้ (เช่น Firebase web config) ไม่ใช่ secret key
+- branch `gh-pages` ตอนนี้มี `.eslintrc.cjs` กับ `.gitignore` ค้างอยู่ (ไม่ได้อยู่ใน `dist/` แล้ว) เพราะ glob ลบไฟล์เก่าของ gh-pages ไม่แตะ dotfile โดยดีฟอลต์ — ไม่อันตรายแต่ควรล้าง
+
+**ทางเลือกที่พิจารณา / Trade-off:**
+- **`gh-pages` CLI** (ที่ใช้อยู่): ง่าย ไม่ต้องตั้งค่าอะไร แต่ deploy จากเครื่องตัวเอง → ของที่ขึ้นเว็บอาจไม่ตรงกับโค้ดที่ commit ไว้ และคนอื่นทำซ้ำไม่ได้
+- **GitHub Actions**: deploy อัตโนมัติจาก commit บน `main` → ของที่ขึ้นเว็บตรงกับ git เสมอ ตรวจสอบย้อนหลังได้ เป็นมาตรฐานของงานจริง แต่ต้องเขียน workflow
+
+**อ้างอิง:**
+- [Vite — Building for Production (asset hashing)](https://vite.dev/guide/build.html)
+- [Vite — Env Variables and Modes (คำเตือนเรื่อง `VITE_` prefix)](https://vite.dev/guide/env-and-mode.html)
+- [Vite — The `public` Directory](https://vite.dev/guide/assets.html#the-public-directory)
+- [GitHub Docs — About GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages)
+- [MDN — HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching)
+
+**ลองต่อยอด:** แก้ CSS สักบรรทัดแล้ว build ใหม่ — จะเห็นว่า hash ของ `.css` เปลี่ยนแต่ `.js` ไม่เปลี่ยน เพราะ hash ผูกกับเนื้อหาของแต่ละไฟล์แยกกัน
+
+---
+
+## [2026-09-21] Conference Event Planner — Task 6: ตารางสรุป และ render prop
+
+**Stack:** JavaScript / React
+
+**Concept:** ส่ง component เป็น prop (render prop), spread + tagging, และกับดักของ `&&` ใน JSX
+
+**อธิบาย:**
+
+**1. ปิดบั๊ก `totalCosts` ที่ค้างมา 2 วัน**
+- พอประกาศ `const totalCosts = { venue, av, meals }` แล้ว `no-undef` ที่ `ConferenceEvent.jsx` **หายไปจากผล lint ทันที** — ยืนยันว่า error ที่ linter ชี้ตรงกับ ReferenceError ที่จะเกิดจริงตอน runtime ไม่ใช่การเตือนเกินจริง
+- ตัว object นี้ต้องวาง **หลัง** `venueTotalCost`/`avTotalCost`/`mealsTotalCost` เพราะ `const` มี **Temporal Dead Zone** — อ้างถึงก่อนบรรทัดที่ประกาศจะ throw ไม่เหมือน `var` ที่ได้ `undefined` เงียบ ๆ หรือ function declaration ที่ hoist ขึ้นไปทั้งตัว
+
+**2. Render prop — ส่ง "วิธีเรนเดอร์" เป็น prop**
+- `ItemsDisplay={() => <ItemsDisplay items={items} />}` ไม่ได้ส่ง *ข้อมูล* แต่ส่ง **ฟังก์ชันที่คืน JSX** ไปให้ลูก แล้วลูกเป็นคนตัดสินใจว่าจะเรียกตอนไหน/วางตรงไหน เรียกว่า **render prop**
+- ข้อดีคือ `TotalCost` ไม่ต้องรู้จัก `items` หรือ `venueItems` เลย — มันแค่รู้ว่า "มีอะไรบางอย่างให้เรนเดอร์" จึงเอาไปใช้ซ้ำกับข้อมูลชุดอื่นได้ (inversion of control)
+- ต้องห่อด้วย arrow function `() => <ItemsDisplay ... />` ไม่ใช่ `<ItemsDisplay items={items} />` ตรง ๆ เพราะ prop นี้ถูกประกาศให้เป็น **ฟังก์ชัน** ที่ลูกจะเรียกเอง
+- สมัยใหม่นิยมใช้ **`children` prop** แทน render prop ในเคสง่าย ๆ แบบนี้ (อ่านง่ายกว่า) ส่วน custom hooks มาแทน render prop ในเคสที่แชร์ *ตรรกะ* ไม่ใช่ *UI*
+
+**3. Spread + tagging เพื่อรวมข้อมูลต่างชนิด**
+- `items.push({ ...item, type: "venue" })` คือ copy ทุก field ของ item แล้ว **เติม `type` เข้าไปเป็นป้ายกำกับ** ทำให้ array เดียวเก็บของ 3 ชนิดได้ แล้วค่อยแยกพฤติกรรมตอนเรนเดอร์ด้วย `item.type === "meals"`
+- สำคัญ: spread สร้าง **object ใหม่** ไม่ได้แก้ของเดิมใน Redux store — ถ้าเขียน `item.type = "venue"` ตรง ๆ จะเป็นการ mutate state ที่ Redux ห้าม (และ middleware ของ `configureStore` จะจับได้ใน dev)
+- นี่คือ **shallow copy** — ถ้า item มี object ซ้อนข้างใน จะยังแชร์ reference เดิมอยู่ เคสนี้ field เป็น primitive ล้วนจึงปลอดภัย
+
+**4. กับดัก `&&` ใน JSX ที่ควรรู้**
+- `{items.length === 0 && <p>No items selected</p>}` **ปลอดภัย** เพราะฝั่งซ้ายเป็น boolean
+- แต่ถ้าเขียน `{items.length && <p>...</p>}` เมื่อ array ว่าง `items.length` เป็น `0` → JSX **เรนเดอร์เลข `0` ออกมาบนหน้าจอ** เพราะ `0` ไม่ใช่ค่าที่ React ข้าม (React ข้ามเฉพาะ `false`, `null`, `undefined`) เป็นบั๊กคลาสสิกที่เจอบ่อยมาก
+- วิธีกัน: บังคับให้เป็น boolean เสมอ (`items.length > 0 &&`) หรือใช้ ternary
+
+**5. ESLint เตือนใหม่: `react/prop-types`**
+- `ItemsDisplay` รับ prop `items` แต่ไม่ได้ประกาศชนิดไว้ → `eslint-plugin-react` ฟ้อง 3 จุด เป็น **การเตือนเรื่องสัญญาระหว่าง component** ไม่ใช่บั๊ก โค้ดรันได้ปกติ
+- ทางแก้: ติดตั้ง `prop-types` แล้วประกาศ `ItemsDisplay.propTypes = { items: PropTypes.array.isRequired }`, หรือปิดกฎ, หรือ **ย้ายไป TypeScript** ซึ่งตรวจตั้งแต่ compile time แทนที่จะรอ runtime (ทีมส่วนใหญ่เลือกทางนี้แล้ว)
+
+**ทางเลือกที่พิจารณา / Trade-off:**
+- **Render prop** (ที่แล็บใช้): ยืดหยุ่น ลูกคุมตำแหน่งเรนเดอร์ได้ | **`children`**: อ่านง่ายกว่าสำหรับเคสเดียว | **ส่ง `items` เป็น data ตรง ๆ**: ง่ายสุดแต่ `TotalCost` ต้องรู้รูปร่างข้อมูล ผูกกันแน่นขึ้น
+- **`key={index}`**: ยังใช้ได้เพราะ list สร้างใหม่ทุกครั้งและไม่มี local state ใน row — แต่ `key={`${item.type}-${item.name}`}` จะสื่อความหมายกว่า
+
+**อ้างอิง:**
+- [React — Passing props to a component](https://react.dev/learn/passing-props-to-a-component)
+- [React — Conditional rendering (กับดัก `&&` กับเลข 0)](https://react.dev/learn/conditional-rendering#logical-and-operator-)
+- [React (legacy docs) — Render Props](https://legacy.reactjs.org/docs/render-props.html)
+- [MDN — Spread syntax](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Spread_syntax)
+- [MDN — `let`/`const` และ Temporal Dead Zone](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz)
+
+**ลองต่อยอด:** เปลี่ยน `{items.length === 0 && ...}` เป็น `{items.length && ...}` แล้วกด Show Details ตอนยังไม่เลือกอะไร — จะเห็นเลข `0` โผล่บนหน้าจอ เป็นการพิสูจน์กับดักข้อ 4 ด้วยตาตัวเอง
+
+---
+
+## [2026-09-21] Conference Event Planner — Task 7: TotalCost และกฎตัวพิมพ์ใหญ่ของ JSX
+
+**Stack:** JavaScript / React
+
+**Concept:** ทำไม `<ItemsDisplay />` ถึงเรียกฟังก์ชันที่รับมาทาง prop ได้
+
+**อธิบาย:**
+
+**1. กฎสำคัญ: JSX ตัดสินจาก "ตัวพิมพ์ใหญ่/เล็ก" ของชื่อ**
+- `<ItemsDisplay />` ใน `TotalCost.jsx` ไม่ได้อ้างถึง component ที่ import มา — มันอ้างถึง **prop ชื่อ `ItemsDisplay`** ที่แม่ส่งมา ซึ่งค่าจริงคือ `() => <ItemsDisplay items={items} />`
+- ที่มันทำงานได้เพราะ JSX แปลงตามกฎนี้: **ชื่อขึ้นต้นด้วยตัวพิมพ์ใหญ่ → ถือเป็นตัวแปรใน scope แล้วเรียกเป็น component** ส่วน **ชื่อขึ้นต้นด้วยตัวพิมพ์เล็ก → ถือเป็น HTML tag (string)**
+- ดังนั้นถ้าเปลี่ยนชื่อ prop เป็น `itemsDisplay` (ตัวเล็ก) แล้วเขียน `<itemsDisplay />` React จะพยายามสร้าง DOM element ชื่อ `<itemsdisplay>` แทน — ไม่ error แต่หน้าจอว่างเปล่า เป็นบั๊กที่หาสาเหตุยากมาก
+- สรุปสายการทำงานเต็ม: `ConferenceEvent` สร้าง `items` → ห่อเป็น arrow function ส่งเป็น prop → `TotalCost` เรียกด้วย `<ItemsDisplay />` → React เรียกฟังก์ชันนั้น → ได้ `<ItemsDisplay items={items} />` ของ `ConferenceEvent` กลับมาเรนเดอร์ (ปิดวงจร render prop จาก Task 6)
+
+**2. `total_amount` คำนวณสดจาก props ทุก render**
+- ไม่ต้อง `useState` หรือ `useEffect` เลย — เป็น **derived value** จาก props ล้วน ๆ การเก็บลง state จะทำให้มีสองแหล่งความจริงและต้องเขียน effect คอย sync ซึ่งเป็น anti-pattern ที่ React เตือนไว้ตรง ๆ
+- ก็เลยเป็นเหตุผลว่าทำไม `useState`/`useEffect` ที่ import มาตั้งแต่ต้นไฟล์ถึงไม่ถูกใช้ (ESLint ฟ้อง `no-unused-vars`) — แล็บให้ import ไว้เผื่อ แต่โจทย์จริงไม่ต้องใช้ ลบได้ปลอดภัย
+
+**3. บั๊ก HTML ที่ซ่อนอยู่ในโค้ดแล็บ: `<h3>` ใน `<p>`**
+- `<p className="preheading"><h3>Total cost for the event</h3></p>` เป็น **invalid nesting** — สเปก HTML ห้าม `<p>` มี block-level element ข้างใน เบราว์เซอร์จะ **auto-close `<p>` ก่อน `<h3>`** ทำให้ DOM จริงกลายเป็น `<p></p><h3>...</h3><p></p>`
+- ผลคือ `.pricing-app .preheading` (font 25px, uppercase, dosis) ไปลงที่ `<p>` เปล่า ๆ ส่วน `<h3>` หลุดออกมาใช้สไตล์ default → หน้าตาไม่ตรงกับที่ CSS ตั้งใจ
+- React จะ log `validateDOMNesting(...): <h3> cannot appear as a descendant of <p>` ใน console ด้วย
+- แก้ได้โดยเลือกอย่างใดอย่างหนึ่ง: `<p className="preheading">Total cost for the event</p>` หรือ `<h3 className="preheading">Total cost for the event</h3>`
+
+**ทางเลือกที่พิจารณา / Trade-off:**
+- **`snake_case` (`total_amount`) ตามแล็บ**: ขัดกับ convention ของ JS ที่ใช้ `camelCase` (`totalAmount`) — ไม่ผิดแต่ไม่เข้าพวกกับตัวแปรอื่นในโปรเจกต์อย่าง `venueTotalCost` ถ้าทำงานจริงควรเลือกให้สม่ำเสมอทั้ง codebase
+- **คำนวณ `total_amount` ในลูก (ที่ใช้อยู่)**: ลูกรู้วิธีรวมเอง แม่ส่งแค่ข้อมูลดิบ | **คำนวณในแม่แล้วส่งตัวเลขมา**: ลูกโง่ลง reusable น้อยลง แต่ tracing ง่ายกว่า
+
+**อ้างอิง:**
+- [React — Writing markup with JSX (กฎตัวพิมพ์ใหญ่ของชื่อ component)](https://react.dev/learn/writing-markup-with-jsx)
+- [React — Your First Component: ชื่อ component ต้องขึ้นต้นด้วยตัวพิมพ์ใหญ่](https://react.dev/learn/your-first-component#step-2-define-the-function)
+- [React — You Might Not Need an Effect (อย่าเก็บ derived value ลง state)](https://react.dev/learn/you-might-not-need-an-effect)
+- [HTML Standard — The `p` element (content model: phrasing content เท่านั้น)](https://html.spec.whatwg.org/multipage/grouping-content.html#the-p-element)
+
+**ลองต่อยอด:** เปิด DevTools → Elements ตอนกด Show Details แล้วดู DOM ของ `.header` จะเห็นว่า `<h3>` ไม่ได้อยู่ใน `<p>` อย่างที่เขียนไว้ในโค้ด — เป็นตัวอย่างว่าเบราว์เซอร์ "ซ่อม" HTML ผิดกฎให้เราโดยไม่บอก
